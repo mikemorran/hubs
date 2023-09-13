@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { removeNetworkedObject } from "../../utils/removeNetworkedObject";
-import { shouldUseNewLoader } from "../../utils/bit-utils";
+import { findAncestorWithComponent, shouldUseNewLoader } from "../../utils/bit-utils";
 import { rotateInPlaceAroundWorldUp, affixToWorldUp } from "../../utils/three-utils";
 import { getPromotionTokenForFile } from "../../utils/media-utils";
 import { hasComponent } from "bitecs";
 import { isPinned as getPinnedState } from "../../bit-systems/networking";
-import { AEntity, MediaInfo, Static } from "../../bit-components";
 import { deleteTheDeletableAncestor } from "../../bit-systems/delete-entity-system";
 import { isAEntityPinned } from "../../systems/hold-system";
+import { MediaContentBounds, MediaInfo, MediaLoader, Owned, Static, AEntity } from "../../bit-components";
+import { setPinned } from "../../utils/bit-pinning-helper";
+import { debounce } from "lodash";
 
 export function isMe(object) {
   return object.id === "avatar-rig";
@@ -15,7 +17,8 @@ export function isMe(object) {
 
 export function isPlayer(object) {
   if (shouldUseNewLoader()) {
-    // TODO Add when networked avatar is migrated
+    // TODO Add when networked avatar is migrated?
+    // We don't list players in the objects list so do we need this function at all?
     return false;
   } else {
     return !!object.el.components["networked-avatar"];
@@ -44,7 +47,8 @@ function isObjectPinned(world, eid) {
   if (hasComponent(world, AEntity, eid)) {
     return isAEntityPinned(APP.world, eid);
   } else {
-    return getPinnedState(eid);
+    const mediaRootEid = findAncestorWithComponent(APP.world, MediaContentBounds, eid);
+    return getPinnedState(mediaRootEid);
   }
 }
 
@@ -52,18 +56,28 @@ export function usePinObject(hubChannel, scene, object) {
   const [isPinned, setIsPinned] = useState(isObjectPinned(APP.world, object.eid));
 
   const pinObject = useCallback(() => {
-    const el = object.el;
-    if (!NAF.utils.isMine(el) && !NAF.utils.takeOwnership(el)) return;
-    window.APP.pinningHelper.setPinned(el, true);
-  }, [object]);
+    if (shouldUseNewLoader()) {
+      const mediaRootEid = findAncestorWithComponent(APP.world, MediaContentBounds, object.eid);
+      setPinned(hubChannel, APP.world, mediaRootEid, true);
+    } else {
+      const el = object.el;
+      if (!NAF.utils.isMine(el) && !NAF.utils.takeOwnership(el)) return;
+      window.APP.pinningHelper.setPinned(el, true);
+    }
+  }, [object, hubChannel]);
 
   const unpinObject = useCallback(() => {
-    const el = object.el;
-    if (!NAF.utils.isMine(el) && !NAF.utils.takeOwnership(el)) return;
-    window.APP.pinningHelper.setPinned(el, false);
-  }, [object]);
+    if (shouldUseNewLoader()) {
+      const mediaRootEid = findAncestorWithComponent(APP.world, MediaContentBounds, object.eid);
+      setPinned(hubChannel, APP.world, mediaRootEid, false);
+    } else {
+      const el = object.el;
+      if (!NAF.utils.isMine(el) && !NAF.utils.takeOwnership(el)) return;
+      window.APP.pinningHelper.setPinned(el, false);
+    }
+  }, [object, hubChannel]);
 
-  const togglePinned = useCallback(() => {
+  const _togglePinned = useCallback(() => {
     if (isPinned) {
       unpinObject();
     } else {
@@ -71,10 +85,21 @@ export function usePinObject(hubChannel, scene, object) {
     }
   }, [isPinned, pinObject, unpinObject]);
 
+  const togglePinned = useMemo(() => debounce(_togglePinned, 100), [_togglePinned]);
   useEffect(() => {
-    // TODO Add when pinning is migrated
+    return () => {
+      togglePinned.cancel();
+    };
+  }, [togglePinned]);
+
+  useEffect(() => {
     if (shouldUseNewLoader()) {
-      return;
+      const handler = setInterval(() => {
+        setIsPinned(isObjectPinned(APP.world, object.eid));
+      }, 100);
+      return () => {
+        clearInterval(handler);
+      };
     }
 
     const el = object.el;
@@ -91,24 +116,33 @@ export function usePinObject(hubChannel, scene, object) {
     };
   }, [object]);
 
-  if (shouldUseNewLoader()) {
-    // TODO Add when pinning is migrated
-    return false;
-  }
-
-  const el = object.el;
-
   let userOwnsFile = false;
 
-  if (el.components["media-loader"]) {
-    const { fileIsOwned, fileId } = el.components["media-loader"].data;
+  if (shouldUseNewLoader()) {
+    const fileId = MediaLoader.fileId[object.eid];
+    const mediaRootEid = findAncestorWithComponent(APP.world, MediaContentBounds, object.eid);
+    const fileIsOwned = hasComponent(APP.world, Owned, mediaRootEid);
     userOwnsFile = fileIsOwned || (fileId && getPromotionTokenForFile(fileId));
+  } else {
+    const el = object.el;
+    if (el.components["media-loader"]) {
+      const { fileIsOwned, fileId } = el.components["media-loader"].data;
+      userOwnsFile = fileIsOwned || (fileId && getPromotionTokenForFile(fileId));
+    }
   }
+
+  let targetEid;
+  if (shouldUseNewLoader()) {
+    targetEid = findAncestorWithComponent(APP.world, MediaContentBounds, object.eid);
+  } else {
+    targetEid = object.el.eid;
+  }
+  const isStatic = hasComponent(APP.world, Static, targetEid);
 
   const canPin = !!(
     scene.is("entered") &&
     !isPlayer(object) &&
-    !hasComponent(APP.world, Static, el.eid) &&
+    !isStatic &&
     hubChannel.can("pin_objects") &&
     userOwnsFile
   );
@@ -157,7 +191,7 @@ export function useRemoveObject(hubChannel, scene, object) {
   const canRemoveObject = !!(
     scene.is("entered") &&
     !isPlayer(object) &&
-    !isObjectPinned(APP.world, object.eid) &&
+    !isObjectPinned(APP.world, eid) &&
     !hasComponent(APP.world, Static, eid) &&
     hubChannel.can("spawn_and_move_media")
   );
