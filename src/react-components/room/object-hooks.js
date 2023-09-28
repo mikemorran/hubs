@@ -7,7 +7,7 @@ import { hasComponent } from "bitecs";
 import { isPinned as getPinnedState } from "../../bit-systems/networking";
 import { deleteTheDeletableAncestor } from "../../bit-systems/delete-entity-system";
 import { isAEntityPinned } from "../../systems/hold-system";
-import { MediaContentBounds, MediaInfo, MediaLoader, Owned, Static, AEntity } from "../../bit-components";
+import { MediaContentBounds, MediaInfo, Static, AEntity } from "../../bit-components";
 import { setPinned } from "../../utils/bit-pinning-helper";
 import { debounce } from "lodash";
 
