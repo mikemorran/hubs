@@ -1476,4 +1476,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   authChannel.setSocket(socket);
   linkChannel.setSocket(socket);
+
+  console.log('testing ce custom client deploy');
 });
