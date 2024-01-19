@@ -1,4 +1,4 @@
-name: ce
+name: hcce-obxr-registry
 
 on:
   workflow_dispatch:
