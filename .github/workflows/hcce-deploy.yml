@@ -1,4 +1,4 @@
-name: ce
+name: hccesetupsession
 
 on:
   workflow_dispatch:
