@@ -1,3 +1,5 @@
+console.log('TESTING CUSTOM CLIENT DEPLOYMENT');
+
 import {
   getCurrentHubId,
   updateVRHudPresenceCount,
